@@ -29,7 +29,8 @@ pip install openai pandas openpyxl
 3. 配置API密钥
 在<mcsymbol name="ask_deepseek" filename="main.py" path="d:\PycharmProj\Weibo_deepseek_analysis\main.py" startline="6" type="function"></mcsymbol>中替换：
 ```python
-api_key = "sk-57a7a273cae24c3cbfc879240e327782"  # 替换为有效密钥
+api_key = "sk-********************"  # 替换为有效密钥
+# 前往 https://platform.deepseek.com/api_keys 获取
 ```
 
 4. 运行程序
