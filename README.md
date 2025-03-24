@@ -8,7 +8,7 @@
 - 自动生成结构化分析报告（Excel格式）
 
 ## 核心配置
-在<mcsymbol name="main" filename="main.py" path="d:\PycharmProj\Weibo_deepseek_analysis\main.py" startline="89" type="function"></mcsymbol>中设置：
+在 main.py 中设置：
 ```python
 input_file = "C:\\Users\\wqwan\\Desktop\\weibo_data_01_28_1.txt"  # 支持绝对路径或相对路径
 ```
@@ -27,7 +27,7 @@ pip install openai pandas openpyxl
   - 相对路径：`data/input.txt`（相对于main.py）
 
 3. 配置API密钥
-在<mcsymbol name="ask_deepseek" filename="main.py" path="d:\PycharmProj\Weibo_deepseek_analysis\main.py" startline="6" type="function"></mcsymbol>中替换：
+在 main.py 中替换：
 ```python
 api_key = "sk-********************"  # 替换为有效密钥
 # 前往 https://platform.deepseek.com/api_keys 获取
