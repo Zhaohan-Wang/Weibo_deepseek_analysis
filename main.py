@@ -2,11 +2,93 @@ from openai import OpenAI
 import json
 import pandas as pd
 from datetime import datetime
+import aiohttp
+import asyncio
+from tenacity import (
+    retry,
+    wait_exponential,
+    stop_after_attempt,
+    retry_if_exception_type,
+)
+
+# ... 保持原有导入不变 ...
+
+# 配置参数
+MAX_CONCURRENT = 10  # 最大并发数
+MAX_RETRIES = 10  # 最大重试次数
+API_KEY = "sk-*****"
+
+
+async def async_ask_deepseek(session, system_prompt, user_input):
+    """异步请求函数"""
+
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(MAX_RETRIES),
+        retry=retry_if_exception_type(
+            (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError)
+        ),
+    )
+    async def _request():
+        async with session.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input},
+                ],
+            },
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as response:
+            data = await response.json()  # 改为解析JSON响应
+            content = data["choices"][0]["message"]["content"]
+            cleaned = content.strip().strip("```json").strip("```").strip()
+            return json.loads(cleaned)
+
+    try:
+        return await _request()
+    except Exception as e:
+        print(f"请求失败: {str(e)}")
+        return None
+
+
+async def process_input(session, semaphore, system_prompt, idx, custom_input):
+    """处理单个输入的异步任务"""
+    async with semaphore:
+        print(f"开始处理第 {idx} 条输入")
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                result = await async_ask_deepseek(session, system_prompt, custom_input)
+                if result:
+                    # 新增有效性检查
+                    required_fields = [
+                        "主要传播动机",
+                        "次要传播动机",
+                        "情感",
+                        "情绪烈度",
+                        "了解程度",
+                    ]
+                    if all(field in result for field in required_fields):
+                        save_to_excel(result, custom_input)
+                        return True
+                    else:
+                        print(f"第 {idx} 条结果字段不全: {result}")
+                        continue  # 继续重试
+                else:
+                    print(f"第 {idx} 条请求返回空结果")
+            except Exception as e:
+                print(f"第 {idx} 条输入第 {attempt} 次重试，错误: {str(e)}")
+        return False
 
 
 def ask_deepseek(system_prompt, user_input):
     client = OpenAI(
-        api_key="sk-57a7a273cae24c3cbfc879240e327782",  # 请替换为您的API密钥
+        api_key="<DeepSeek API Key>",  # 请替换为您的API密钥
         base_url="https://api.deepseek.com",
     )
 
@@ -23,7 +105,19 @@ def ask_deepseek(system_prompt, user_input):
 
 
 def save_to_excel(result, custom_input):
-    """将分析结果保存至Excel文件，包含自动编号和列顺序管理"""
+    """ "将分析结果保存至Excel文件，包含自动编号和列顺序管理"""
+    # 新增字段校验逻辑
+    required_fields = [
+        "主要传播动机",
+        "次要传播动机",
+        "情感",
+        "情绪烈度",
+        "了解程度",
+    ]
+    for field in required_fields:
+        if field not in result:
+            result[field] = "未知"
+
     df = pd.DataFrame([result])
     df["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     df["原文"] = custom_input  # 添加原文字段
@@ -74,6 +168,18 @@ def save_to_excel(result, custom_input):
     print(f"结果已保存至 {filename}")
 
 
+async def main_async(inputs, system_prompt):
+    """异步主函数"""
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            process_input(session, semaphore, system_prompt, idx, input_text)
+            for idx, input_text in enumerate(inputs, 1)
+        ]
+        results = await asyncio.gather(*tasks)
+        print(f"处理完成，成功{sum(results)}条，失败{len(results) - sum(results)}条")
+
+
 # 使用示例
 if __name__ == "__main__":
     custom_system = """分析以下有关deepseek的博文内容，分析用户的主要传播动机，次要传播动机，情感（积极、中立，消极），情绪烈度（强，中，弱），猜测用户对deepseek了解程度（专家到仅听说打分5-0或输出未知），博文内容：“玩了一下deepseek让它给我写同人文大纲看得我one愣one愣的。。。 ​”严格按照以下JSON格式输出，禁止任何其他内容：
@@ -96,17 +202,4 @@ if __name__ == "__main__":
         print(f"错误：找不到输入文件 {input_file}")
         exit(1)
 
-    # 处理每个输入
-    for idx, custom_input in enumerate(inputs, 1):
-        print(f"\n处理第 {idx} 条输入...")
-        answer = ask_deepseek(custom_system, custom_input)
-
-        try:
-            if answer is not None:
-                cleaned_answer = answer.strip().strip("```json").strip("```").strip()
-                result = json.loads(cleaned_answer)
-                save_to_excel(result, custom_input)
-            else:
-                print(f"第 {idx} 条请求返回空响应")
-        except json.JSONDecodeError:
-            print(f"第 {idx} 条响应解析失败：{answer}")
+    asyncio.run(main_async(inputs, custom_system))
